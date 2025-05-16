@@ -10,7 +10,7 @@ pub struct DnsHeader {
 }
 
 impl DnsHeader {
-    pub fn new(request_id: u16) -> Self {
+    pub fn new(request_id: u16, question_len: u16) -> Self {
         // Flags: QR=1 (Response), everything else is 0
         // 1000 0000 0000 0000 = 0x8000
         let flags = 0x8000;
@@ -18,7 +18,7 @@ impl DnsHeader {
         DnsHeader {
             id: request_id,
             flags,
-            qdcount: 0,
+            qdcount: question_len,
             ancount: 0,
             nscount: 0,
             arcount: 0,
