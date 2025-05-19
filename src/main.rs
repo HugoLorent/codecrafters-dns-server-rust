@@ -1,6 +1,7 @@
 #[allow(unused_imports)]
 use std::net::UdpSocket;
 
+use dns::dns_header::DnsHeader;
 use dns::DnsMessage;
 
 mod dns;
@@ -16,24 +17,30 @@ fn main() {
             Ok((size, source)) => {
                 println!("Received {} bytes from {}", size, source);
 
-                // Extract request id (2 first bytes)
-                let request_id = if size >= 2 {
-                    ((buf[0] as u16) << 8) | (buf[1] as u16)
-                } else {
-                    // Fallback if request is too short
-                    0
-                };
+                // Parse the DNS header
+                match DnsHeader::from_bytes(&buf[..size]) {
+                    Ok(header) => {
+                        println!("Parsed DNS header:");
+                        println!("  ID: {}", header.id);
+                        println!("  OPCODE: {}", header.opcode());
+                        println!("  RD: {}", header.recursion_desired());
+                        println!("  Questions: {}", header.qdcount);
 
-                // Create a simple DNS response
-                let dns_response = DnsMessage::new(request_id);
-                let response_bytes = dns_response.to_bytes();
+                        // Create a DNS response based on the request header
+                        let dns_response = DnsMessage::new_response_from_request(&header);
+                        let response_bytes = dns_response.to_bytes();
 
-                // Send the response
-                udp_socket
-                    .send_to(&response_bytes, source)
-                    .expect("Failed to send response");
+                        // Send the response
+                        udp_socket
+                            .send_to(&response_bytes, source)
+                            .expect("Failed to send response");
 
-                println!("Sent response to {}", source);
+                        println!("Sent response to {}", source);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to parse DNS header: {}", e);
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("Error receiving data: {}", e);

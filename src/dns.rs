@@ -1,4 +1,4 @@
-mod dns_header;
+pub mod dns_header;
 mod dns_question;
 mod dns_record;
 
@@ -14,16 +14,17 @@ pub struct DnsMessage {
 }
 
 impl DnsMessage {
-    pub fn new(request_id: u16) -> Self {
+    // New method to create a response based on a request header
+    pub fn new_response_from_request(request_header: &DnsHeader) -> Self {
         // Create a question for codecrafters.io
         let dns_questions = vec![DnsQuestion::new()];
 
         // Create an answer with the IP address 8.8.8.8
         let dns_answers = vec![DnsRecord::default_codecrafters_record()];
 
-        // Create header with appropriate counts
+        // Create response header based on request
         let header = DnsHeader::new(
-            request_id,
+            request_header,
             dns_questions.len() as u16,
             dns_answers.len() as u16,
         );
