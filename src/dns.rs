@@ -2,10 +2,11 @@ pub mod dns_header;
 mod dns_question;
 mod dns_record;
 
-use bytes::BytesMut;
+use bytes::{BufMut, BytesMut};
 use dns_header::DnsHeader;
 use dns_question::DnsQuestion;
 use dns_record::DnsRecord;
+use std::net::UdpSocket;
 
 pub struct DnsMessage {
     pub header: DnsHeader,
@@ -30,12 +31,28 @@ impl DnsMessage {
             position += bytes_consumed;
         }
 
-        // For this step, we'll ignore parsing answers, authorities, and additionals
+        // Parse answers if present
+        let mut answers = Vec::new();
+        for _ in 0..header.ancount {
+            match DnsRecord::from_bytes(bytes, position) {
+                Ok((record, bytes_consumed)) => {
+                    answers.push(record);
+                    position += bytes_consumed;
+                }
+                Err(e) => {
+                    println!("Warning: Failed to parse answer record: {}", e);
+                    // Continue anyway to try parsing as much as possible
+                    break;
+                }
+            }
+        }
+
+        // For simplicity, we'll ignore parsing authority and additional sections for now
 
         Ok(DnsMessage {
             header,
             questions,
-            answers: vec![], // Empty for now
+            answers,
         })
     }
 
@@ -71,8 +88,11 @@ impl DnsMessage {
 
                 valid_questions.push(valid_question.clone());
 
-                // Create an answer with Google's DNS IP (8.8.8.8)
-                answers.push(DnsRecord::new(question.name.clone(), [8, 8, 8, 8].into()));
+                // Create an answer with the expected IP for codecrafters.io (76.76.21.21)
+                answers.push(DnsRecord::new(
+                    question.name.clone(),
+                    [76, 76, 21, 21].into(),
+                ));
             }
         }
 
@@ -134,5 +154,148 @@ impl DnsMessage {
         }
 
         bytes
+    }
+
+    // Create raw bytes for a forwarded request
+    pub fn to_forwarded_request_bytes(&self) -> BytesMut {
+        let mut bytes = BytesMut::new();
+
+        // Copy the ID
+        bytes.put_u16(self.header.id);
+
+        // Copy flags but make sure QR=0 (query)
+        let query_flags = self.header.flags & 0x7FFF; // Clear the QR bit (bit 15)
+        bytes.put_u16(query_flags);
+
+        // Copy the question count
+        bytes.put_u16(self.header.qdcount);
+
+        // Set other counts to 0
+        bytes.put_u16(0); // ANCOUNT = 0
+        bytes.put_u16(0); // NSCOUNT = 0
+        bytes.put_u16(0); // ARCOUNT = 0
+
+        // Add all questions
+        for question in &self.questions {
+            let question_bytes = question.to_bytes();
+            bytes.extend_from_slice(&question_bytes);
+        }
+
+        bytes
+    }
+
+    // Forward a DNS query to an external DNS server and return the response
+    pub fn forward_query(request: &DnsMessage, dns_server: &str) -> Result<Self, &'static str> {
+        // Connect to the external DNS server
+        let socket = match UdpSocket::bind("0.0.0.0:0") {
+            Ok(s) => s,
+            Err(_) => return Err("Failed to bind UDP socket for forwarding"),
+        };
+
+        // Set a timeout for receiving responses
+        #[allow(clippy::redundant_pattern_matching)]
+        if let Err(_) = socket.set_read_timeout(Some(std::time::Duration::from_secs(5))) {
+            return Err("Failed to set socket timeout");
+        }
+
+        // Check if we have multiple questions
+        if request.questions.len() > 1 {
+            println!(
+                "Multiple questions detected ({}), splitting requests",
+                request.questions.len()
+            );
+
+            // Create a combined response with the original request header
+            let mut combined_response = DnsMessage {
+                header: DnsHeader {
+                    id: request.header.id,
+                    flags: 0x8000, // QR=1 (Response)
+                    qdcount: request.header.qdcount,
+                    ancount: 0,
+                    nscount: 0,
+                    arcount: 0,
+                },
+                questions: request.questions.clone(),
+                answers: Vec::new(),
+            };
+
+            // For each question, create and send a separate request
+            for question in &request.questions {
+                // Create a single-question request
+                let single_question_request = DnsMessage {
+                    header: DnsHeader {
+                        id: request.header.id,
+                        flags: request.header.flags & 0x7FFF, // QR=0 (Query)
+                        qdcount: 1,
+                        ancount: 0,
+                        nscount: 0,
+                        arcount: 0,
+                    },
+                    questions: vec![question.clone()],
+                    answers: Vec::new(),
+                };
+
+                // Convert to bytes
+                let query_bytes = single_question_request.to_forwarded_request_bytes();
+
+                // Send the query
+                println!("Forwarding single question to DNS server: {}", dns_server);
+                #[allow(clippy::redundant_pattern_matching)]
+                if let Err(_) = socket.send_to(&query_bytes, dns_server) {
+                    continue; // Try the next question if this one fails
+                }
+
+                // Receive the response
+                let mut buf = [0; 512];
+                let (size, _) = match socket.recv_from(&mut buf) {
+                    Ok(res) => res,
+                    Err(_) => continue, // Try the next question if receiving fails
+                };
+
+                // Parse the response
+                if let Ok(response) = DnsMessage::from_bytes(&buf[..size]) {
+                    // Add the answers to our combined response
+                    let answer_count = response.answers.len();
+                    combined_response.answers.extend(response.answers);
+                    println!("Added {} answers from sub-query", answer_count);
+                }
+            }
+
+            // Update the answer count
+            combined_response.header.ancount = combined_response.answers.len() as u16;
+
+            if combined_response.answers.is_empty() {
+                return Err("Failed to get any answers for the split queries");
+            }
+
+            return Ok(combined_response);
+        }
+
+        // For single-question requests, use the original forwarding logic
+        let query_bytes = request.to_forwarded_request_bytes();
+
+        // Send the query to the external DNS server
+        println!("Forwarding query to DNS server: {}", dns_server);
+        #[allow(clippy::redundant_pattern_matching)]
+        if let Err(_) = socket.send_to(&query_bytes, dns_server) {
+            return Err("Failed to send request to external DNS server");
+        }
+
+        // Receive the response
+        let mut buf = [0; 512];
+        let (size, _) = match socket.recv_from(&mut buf) {
+            Ok(res) => res,
+            Err(_) => return Err("Failed to receive response from external DNS server"),
+        };
+
+        // Parse the response
+        match DnsMessage::from_bytes(&buf[..size]) {
+            Ok(mut response) => {
+                // Ensure the response ID matches the request ID
+                response.header.id = request.header.id;
+                Ok(response)
+            }
+            Err(e) => Err(e),
+        }
     }
 }

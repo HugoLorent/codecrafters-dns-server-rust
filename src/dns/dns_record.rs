@@ -46,11 +46,65 @@ impl DnsRecord {
         bytes
     }
 
-    // Helper to create a record for codecrafters.io pointing to 8.8.8.8
+    // Parse a DNS record from bytes
+    pub fn from_bytes(bytes: &[u8], start_pos: usize) -> Result<(Self, usize), &'static str> {
+        if bytes.len() <= start_pos {
+            return Err("Buffer too small for record");
+        }
+
+        // Parse the domain name
+        let (name, name_bytes_consumed) =
+            super::dns_question::DnsQuestion::parse_name_from(bytes, start_pos)?;
+
+        // Calculate position after the name
+        let record_start = start_pos + name_bytes_consumed;
+
+        // Make sure we have enough bytes for the fixed part of the record (10 bytes):
+        // TYPE (2) + CLASS (2) + TTL (4) + RDLENGTH (2)
+        if bytes.len() < record_start + 10 {
+            return Err("Buffer too small for record fields");
+        }
+
+        // Parse the record fields
+        let record_type = ((bytes[record_start] as u16) << 8) | (bytes[record_start + 1] as u16);
+        let class = ((bytes[record_start + 2] as u16) << 8) | (bytes[record_start + 3] as u16);
+
+        let ttl = ((bytes[record_start + 4] as u32) << 24)
+            | ((bytes[record_start + 5] as u32) << 16)
+            | ((bytes[record_start + 6] as u32) << 8)
+            | (bytes[record_start + 7] as u32);
+
+        let rdlength = ((bytes[record_start + 8] as u16) << 8) | (bytes[record_start + 9] as u16);
+
+        // Make sure we have enough bytes for the record data
+        if bytes.len() < record_start + 10 + rdlength as usize {
+            return Err("Buffer too small for record data");
+        }
+
+        // Extract the record data
+        let mut rdata = Vec::with_capacity(rdlength as usize);
+        rdata.extend_from_slice(&bytes[record_start + 10..record_start + 10 + rdlength as usize]);
+
+        // Calculate total bytes consumed
+        let total_consumed = name_bytes_consumed + 10 + rdlength as usize;
+
+        Ok((
+            DnsRecord {
+                name,
+                record_type,
+                class,
+                ttl,
+                rdata,
+            },
+            total_consumed,
+        ))
+    }
+
+    // Helper to create a record for codecrafters.io pointing to 76.76.21.21
     pub fn default_codecrafters_record() -> Self {
         // Use the same domain name encoding as in the question
         let domain = super::dns_question::DnsQuestion::encode_domain_name("codecrafters.io");
-        let ip = Ipv4Addr::new(8, 8, 8, 8); // 8.8.8.8 (Google DNS)
+        let ip = Ipv4Addr::new(76, 76, 21, 21); // 76.76.21.21 (Expected IP for codecrafters.io)
 
         Self::new(domain, ip)
     }

@@ -81,6 +81,7 @@ impl DnsQuestion {
         const MAX_JUMPS: usize = 10; // Prevent infinite loops due to malformed packets
 
         // For calculating bytes consumed
+        #[allow(unused_assignments)]
         let mut bytes_consumed = 0;
         let mut first_jump_pos = 0;
         let mut is_compressed = false;
@@ -197,5 +198,13 @@ impl DnsQuestion {
         bytes.put_u16(self.class);
 
         bytes
+    }
+
+    // Static method to parse a domain name from a given position
+    pub fn parse_name_from(
+        bytes: &[u8],
+        start_pos: usize,
+    ) -> Result<(Vec<u8>, usize), &'static str> {
+        Self::parse_domain_name(bytes, start_pos)
     }
 }
