@@ -24,16 +24,11 @@ fn main() {
                         println!("  ID: {}", request.header.id);
                         println!("  Questions: {}", request.header.qdcount);
 
-                        // Log the questions
+                        // Log the domain names with additional details
                         for (i, question) in request.questions.iter().enumerate() {
                             if let Ok(domain) = question.decode_name() {
-                                println!(
-                                    "  Question {}: {} (Type: {}, Class: {})",
-                                    i + 1,
-                                    domain,
-                                    question.record_type,
-                                    question.class
-                                );
+                                println!("  Question {}: {} (Type: {}, Class: {}, Name length: {} bytes)",
+                                    i + 1, domain, question.record_type, question.class, question.name.len());
                             } else {
                                 println!(
                                     "  Question {}: <failed to decode> (Type: {}, Class: {})",

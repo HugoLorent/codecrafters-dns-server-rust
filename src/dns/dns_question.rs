@@ -67,14 +67,77 @@ impl DnsQuestion {
         ))
     }
 
-    // Helper function to parse a domain name
+    // Helper function to parse a domain name with compression support
+    // DNS compression: https://datatracker.ietf.org/doc/html/rfc1035#section-4.1.4
+    // When the two high bits of a length byte are set (11xxxxxx), it's a pointer to
+    // another location in the packet where the rest of the name can be found.
+    // The offset is encoded in the lower 14 bits of the two-byte pointer.
     fn parse_domain_name(bytes: &[u8], start_pos: usize) -> Result<(Vec<u8>, usize), &'static str> {
         let mut position = start_pos;
         let mut name = Vec::new();
-        let mut length = bytes[position];
 
-        // Copy the entire encoded name (including length bytes and terminating zero)
-        while length != 0 {
+        // To detect compression loops
+        let mut jumps = 0;
+        const MAX_JUMPS: usize = 10; // Prevent infinite loops due to malformed packets
+
+        // For calculating bytes consumed
+        let mut bytes_consumed = 0;
+        let mut first_jump_pos = 0;
+        let mut is_compressed = false;
+
+        loop {
+            // Check for buffer overflow
+            if position >= bytes.len() {
+                return Err("Unexpected end of domain name");
+            }
+
+            let length = bytes[position];
+
+            // End of domain name
+            if length == 0 {
+                // Add the terminating zero
+                name.push(0);
+
+                // If no compression was used, the bytes consumed is just the entire name length
+                if !is_compressed {
+                    bytes_consumed = position - start_pos + 1;
+                } else {
+                    // If compression was used, the bytes consumed is up to the first compression pointer + 2
+                    bytes_consumed = first_jump_pos - start_pos + 2;
+                }
+
+                break;
+            }
+
+            // Check if this is a pointer (two high bits are set to 1)
+            if (length & 0xC0) == 0xC0 {
+                // It's a pointer - calculate the offset
+                if position + 1 >= bytes.len() {
+                    return Err("Incomplete compression pointer");
+                }
+
+                // If this is our first compression pointer, record the position
+                if !is_compressed {
+                    is_compressed = true;
+                    first_jump_pos = position;
+                }
+
+                // The offset is the lower 14 bits of the two bytes
+                let offset = (((length & 0x3F) as usize) << 8) | (bytes[position + 1] as usize);
+
+                // Jump to the new position
+                position = offset;
+
+                // Prevent infinite loops
+                jumps += 1;
+                if jumps > MAX_JUMPS {
+                    return Err("Too many compression pointers, possible loop");
+                }
+
+                continue;
+            }
+
+            // Regular label
             name.push(length);
 
             // Check for buffer overflow
@@ -87,20 +150,7 @@ impl DnsQuestion {
 
             // Move to next label
             position += 1 + length as usize;
-
-            // Check for buffer overflow again
-            if position >= bytes.len() {
-                return Err("Unexpected end of domain name");
-            }
-
-            length = bytes[position];
         }
-
-        // Add the terminating zero
-        name.push(0);
-
-        // Calculate bytes consumed: position - start_pos + 1 for the final zero byte
-        let bytes_consumed = position - start_pos + 1;
 
         Ok((name, bytes_consumed))
     }
