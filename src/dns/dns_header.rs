@@ -76,14 +76,6 @@ impl DnsHeader {
         })
     }
 
-    pub fn opcode(&self) -> u16 {
-        (self.flags >> 11) & 0xF // OPCODE (bits 11-14)
-    }
-
-    pub fn recursion_desired(&self) -> bool {
-        (self.flags & 0x0100) != 0 // RD bit (bit 8)
-    }
-
     pub fn to_bytes(&self) -> BytesMut {
         let mut bytes = BytesMut::with_capacity(12); // DNS header is 12 bytes
 

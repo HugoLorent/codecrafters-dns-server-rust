@@ -14,15 +14,73 @@ pub struct DnsMessage {
 }
 
 impl DnsMessage {
-    // New method to create a response based on a request header
-    pub fn new_response_from_request(request_header: &DnsHeader) -> Self {
-        // Create a question for codecrafters.io
+    // Parse a complete DNS message from bytes
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
+        // Parse the header first
+        let header = DnsHeader::from_bytes(bytes)?;
+
+        // Start parsing questions from byte 12 (end of header)
+        let mut position = 12;
+        let mut questions = Vec::new();
+
+        // Parse all questions
+        for _ in 0..header.qdcount {
+            let (question, bytes_consumed) = DnsQuestion::from_bytes(bytes, position)?;
+            questions.push(question);
+            position += bytes_consumed;
+        }
+
+        // For this step, we'll ignore parsing answers, authorities, and additionals
+
+        Ok(DnsMessage {
+            header,
+            questions,
+            answers: vec![], // Empty for now
+        })
+    }
+
+    // Create a response for specific questions
+    pub fn new(request_header: &DnsHeader, questions: Vec<DnsQuestion>) -> Self {
+        // Create answers for each question
+        let mut answers = Vec::new();
+
+        for question in &questions {
+            // Only respond to A record queries (type 1) for now
+            if question.record_type == 1 {
+                // Try to decode the domain name for debugging
+                if let Ok(domain_name) = question.decode_name() {
+                    println!("Creating answer for domain: {}", domain_name);
+                }
+
+                // Create an answer with Google's DNS IP (8.8.8.8)
+                answers.push(DnsRecord::new(question.name.clone(), [8, 8, 8, 8].into()));
+            }
+        }
+
+        // Create response header
+        let header = DnsHeader::new(request_header, questions.len() as u16, answers.len() as u16);
+
+        DnsMessage {
+            header,
+            questions,
+            answers,
+        }
+    }
+
+    // Create a response based on a request message
+    pub fn new_response_from_request(request: &DnsMessage) -> Self {
+        Self::new(&request.header, request.questions.clone())
+    }
+
+    // Create a response from just the header (fallback if question parsing fails)
+    pub fn new_response_from_request_header(request_header: &DnsHeader) -> Self {
+        // Create a default question
         let dns_questions = vec![DnsQuestion::new()];
 
-        // Create an answer with the IP address 8.8.8.8
+        // Create an answer
         let dns_answers = vec![DnsRecord::default_codecrafters_record()];
 
-        // Create response header based on request
+        // Create response header
         let header = DnsHeader::new(
             request_header,
             dns_questions.len() as u16,
