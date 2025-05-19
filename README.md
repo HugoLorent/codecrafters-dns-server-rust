@@ -1,37 +1,26 @@
-[![progress-banner](https://backend.codecrafters.io/progress/dns-server/589ab956-d250-4ae4-ba07-73f3912e775a)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# DNS Server Implementation in Rust
 
-This is a starting point for Rust solutions to the
-["Build Your Own DNS server" Challenge](https://app.codecrafters.io/courses/dns-server/overview).
+A fully functional DNS server implemented in Rust as part of the [CodeCrafters DNS Server Challenge](https://codecrafters.io/challenges/dns-server).
 
-In this challenge, you'll build a DNS server that's capable of parsing and
-creating DNS packets, responding to DNS queries, handling various record types
-and doing recursive resolve. Along the way we'll learn about the DNS protocol,
-DNS packet format, root servers, authoritative servers, forwarding servers,
-various record types (A, AAAA, CNAME, etc) and more.
+## Features
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+- **DNS Protocol Support**: Properly parses and constructs DNS packets according to RFC standards
+- **Query Resolution**: Responds to DNS queries with appropriate answers
+- **Compression Support**: Handles DNS name compression in both parsing and response generation
+- **Forwarding Server**: Can function as a forwarding DNS server, relaying queries to upstream DNS servers
+- **Multiple Query Handling**: Supports requests with multiple questions
 
-# Passing the first stage
+## Implementation Details
 
-The entry point for your `your_program.sh` implementation is in `src/main.rs`.
-Study and uncomment the relevant code, and push your changes to pass the first
-stage:
+This DNS server is built with a clean, modular architecture:
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
-```
+- **Header Parsing**: Correctly handles DNS headers with proper bit manipulation
+- **Question Parsing**: Parses domain names with support for compression pointers
+- **Answer Construction**: Builds appropriate resource records
+- **Error Handling**: Robust error handling for malformed packets and network issues
 
-Time to move on to the next stage!
+## Usage
 
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `cargo (1.86)` installed locally
-1. Run `./your_program.sh` to run your program, which is implemented in
-   `src/main.rs`. This command compiles your Rust project, so it might be slow
-   the first time you run it. Subsequent runs will be fast.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+```bash
+# Run as a forwarding server
+./your_program --resolver 8.8.8.8:53
